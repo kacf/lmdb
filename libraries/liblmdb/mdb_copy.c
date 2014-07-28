@@ -32,7 +32,7 @@ int main(int argc,char * argv[])
 	int rc;
 	MDB_env *env;
 	const char *progname = argv[0], *act;
-	unsigned flags = MDB_RDONLY;
+	unsigned flags = MDB_NOSUBDIR|MDB_RDONLY;
 	unsigned cpflags = 0;
 
 	for (; argc > 1 && argv[1][0] == '-'; argc--, argv++) {
