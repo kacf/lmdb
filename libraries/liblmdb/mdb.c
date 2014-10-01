@@ -193,7 +193,7 @@ extern int cacheflush(char *addr, int nbytes, int cache);
 #define MDB_DEVEL 0
 #endif
 
-#if MDB_DEVEL && (defined(_WIN32) || (defined(EOWNERDEAD) && !defined(MDB_USE_POSIX_SEM)))
+#if defined(_WIN32) || (defined(EOWNERDEAD) && !defined(MDB_USE_POSIX_SEM))
 #define MDB_ROBUST_SUPPORTED	1
 #endif
 
@@ -654,8 +654,6 @@ typedef struct MDB_txbody {
 		 *	when readers release their slots.
 		 */
 	unsigned	mtb_numreaders;
-		/** Flags which the lock file was initialized with. */
-	unsigned	mtb_flags;
 } MDB_txbody;
 
 	/** The actual reader table definition. */
@@ -668,7 +666,6 @@ typedef struct MDB_txninfo {
 #define mti_rmname	mt1.mtb.mtb_rmname
 #define mti_txnid	mt1.mtb.mtb_txnid
 #define mti_numreaders	mt1.mtb.mtb_numreaders
-#define mti_flags	mt1.mtb.mtb_flags
 		char pad[(sizeof(MDB_txbody)+CACHELINE-1) & ~(CACHELINE-1)];
 	} mt1;
 	union {
@@ -4316,7 +4313,6 @@ mdb_env_setup_locks(MDB_env *env, char *lpath, int mode, int *excl)
 		if (!env->me_rmutex) goto fail_errno;
 		env->me_wmutex = CreateMutex(&mdb_all_sa, FALSE, env->me_txns->mti_wmname);
 		if (!env->me_wmutex) goto fail_errno;
-		env->me_flags |= MDB_ROBUST;
 #elif defined(MDB_USE_POSIX_SEM)
 		struct stat stbuf;
 		struct {
@@ -4357,23 +4353,18 @@ mdb_env_setup_locks(MDB_env *env, char *lpath, int mode, int *excl)
 		if ((rc = pthread_mutexattr_init(&mattr))
 			|| (rc = pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED))
 #ifdef MDB_ROBUST_SUPPORTED
-			|| ((env->me_flags & MDB_ROBUST) &&
-				(rc = pthread_mutexattr_setrobust(&mattr, PTHREAD_MUTEX_ROBUST)))
+			|| (rc = pthread_mutexattr_setrobust(&mattr, PTHREAD_MUTEX_ROBUST))
 #endif
 			|| (rc = pthread_mutex_init(&env->me_txns->mti_rmutex, &mattr))
 			|| (rc = pthread_mutex_init(&env->me_txns->mti_wmutex, &mattr)))
 			goto fail;
 		pthread_mutexattr_destroy(&mattr);
 #endif	/* _WIN32 || MDB_USE_POSIX_SEM */
-#ifndef MDB_ROBUST_SUPPORTED
-		env->me_flags &= ~MDB_ROBUST;
-#endif
 
 		env->me_txns->mti_magic = MDB_MAGIC;
 		env->me_txns->mti_format = MDB_LOCK_FORMAT;
 		env->me_txns->mti_txnid = 0;
 		env->me_txns->mti_numreaders = 0;
-		env->me_txns->mti_flags = env->me_flags;
 
 	} else {
 		if (env->me_txns->mti_magic != MDB_MAGIC) {
@@ -4391,8 +4382,6 @@ mdb_env_setup_locks(MDB_env *env, char *lpath, int mode, int *excl)
 		if (rc && rc != EACCES && rc != EAGAIN) {
 			goto fail;
 		}
-		env->me_flags = (env->me_flags & ~MDB_ROBUST) |
-			(env->me_txns->mti_flags & MDB_ROBUST);
 #ifdef _WIN32
 		env->me_rmutex = OpenMutex(SYNCHRONIZE, FALSE, env->me_txns->mti_rmname);
 		if (!env->me_rmutex) goto fail_errno;
@@ -4424,13 +4413,8 @@ fail:
 	 *	environment and re-opening it with the new flags.
 	 */
 #define	CHANGEABLE	(MDB_NOSYNC|MDB_NOMETASYNC|MDB_MAPASYNC|MDB_NOMEMINIT)
-#define	CHANGELESS	(MDB_FIXEDMAP|MDB_NOSUBDIR|MDB_RDONLY|ROBUST_FLAG| \
+#define	CHANGELESS	(MDB_FIXEDMAP|MDB_NOSUBDIR|MDB_RDONLY| \
 	MDB_WRITEMAP|MDB_NOTLS|MDB_NOLOCK|MDB_NORDAHEAD)
-#ifdef MDB_ROBUST_SUPPORTED
-#define ROBUST_FLAG MDB_ROBUST
-#else
-#define ROBUST_FLAG 0
-#endif
 
 #if VALID_FLAGS & PERSISTENT_FLAGS & (CHANGEABLE|CHANGELESS)
 # error "Persistent DB flags & env flags overlap, but both go in mm_flags"
@@ -9470,7 +9454,7 @@ static int mdb_reader_check0(MDB_env *env, int rlocked, int *dead)
  */
 static int mdb_mutex_failed(MDB_env *env, mdb_mutex_t mutex, int rc)
 {
-	int toggle, rlocked, rc2;
+	int rlocked, rc2;
 #ifndef _WIN32
 	enum { WAIT_ABANDONED = EOWNERDEAD };
 #endif
@@ -9480,12 +9464,6 @@ static int mdb_mutex_failed(MDB_env *env, mdb_mutex_t mutex, int rc)
 		rc = MDB_SUCCESS;
 		rlocked = (mutex == MDB_MUTEX(env, r));
 		if (!rlocked) {
-			/* Keep mti_txnid updated, otherwise next writer can
-			 * overwrite data which latest meta page refers to.
-			 * TODO: Instead revert any aborted commit and sync?
-			 */
-			toggle = mdb_env_pick_meta(env);
-			env->me_txns->mti_txnid = env->me_metas[toggle]->mm_txnid;
 			/* env is hosed if the dead thread was ours */
 			if (env->me_txn) {
 				env->me_flags |= MDB_FATAL_ERROR;
