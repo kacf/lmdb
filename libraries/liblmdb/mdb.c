@@ -9454,7 +9454,7 @@ static int mdb_reader_check0(MDB_env *env, int rlocked, int *dead)
  */
 static int mdb_mutex_failed(MDB_env *env, mdb_mutex_t mutex, int rc)
 {
-	int rlocked, rc2;
+	int toggle, rlocked, rc2;
 #ifndef _WIN32
 	enum { WAIT_ABANDONED = EOWNERDEAD };
 #endif
@@ -9464,6 +9464,11 @@ static int mdb_mutex_failed(MDB_env *env, mdb_mutex_t mutex, int rc)
 		rc = MDB_SUCCESS;
 		rlocked = (mutex == MDB_MUTEX(env, r));
 		if (!rlocked) {
+			/* Keep mti_txnid updated, otherwise next writer can
+			 * overwrite data which latest meta page refers to.
+			 */
+			toggle = mdb_env_pick_meta(env);
+			env->me_txns->mti_txnid = env->me_metas[toggle]->mm_txnid;
 			/* env is hosed if the dead thread was ours */
 			if (env->me_txn) {
 				env->me_flags |= MDB_FATAL_ERROR;
