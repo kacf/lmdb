@@ -193,7 +193,7 @@ extern int cacheflush(char *addr, int nbytes, int cache);
 #define MDB_DEVEL 0
 #endif
 
-#if defined(_WIN32) || (defined(EOWNERDEAD) && !defined(MDB_USE_POSIX_SEM))
+#ifdef HAVE_PTHREAD_MUTEXATTR_SETROBUST
 #define MDB_ROBUST_SUPPORTED	1
 #endif
 
