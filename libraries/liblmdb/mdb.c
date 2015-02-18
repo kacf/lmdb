@@ -226,6 +226,12 @@ typedef SSIZE_T	ssize_t;
 #define MDB_DEVEL 0
 #endif
 
+#ifdef HAVE_PTHREAD_MUTEXATTR_SETROBUST
+#define MDB_USE_ROBUST 1
+#else
+#define MDB_USE_ROBUST 0
+#endif
+
 	/** Wrapper around __func__, which is a C99 feature */
 #if __STDC_VERSION__ >= 199901L
 # define mdb_func_	__func__
