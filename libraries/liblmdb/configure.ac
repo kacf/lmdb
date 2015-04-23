@@ -37,6 +37,18 @@ AC_CHECK_FUNC([pthread_mutexattr_setrobust],
     ])
 ])
 
+AC_MSG_CHECKING([cache line size])
+AS_CASE([$target_os],
+[*hpux*],
+[
+    AC_MSG_RESULT([128])
+    AC_DEFINE([CACHELINE], [128])
+],
+[
+    AC_MSG_RESULT([64])
+    AC_DEFINE([CACHELINE], [64])
+])
+
 AC_CONFIG_SRCDIR([mdb.c])
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
